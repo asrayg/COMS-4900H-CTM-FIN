@@ -16,20 +16,12 @@ def process_day(file_path, K=10):
         # Fallback if names differ slightly
         timestamps = np.arange(len(df))
     
-    # Extract bid/ask prices and sizes for top K levels
+    # Extract bid/ask prices and sizes for top K levels (Tardis schema)
     try:
-        # Check if using Crypto Lake schema (bid_0_price, etc.)
-        if 'bid_0_price' in df.columns:
-            bid_px = df[[f'bid_{i}_price' for i in range(K)]].values
-            bid_sz = df[[f'bid_{i}_size' for i in range(K)]].values
-            ask_px = df[[f'ask_{i}_price' for i in range(K)]].values
-            ask_sz = df[[f'ask_{i}_size' for i in range(K)]].values
-        else:
-            # Fallback to the original binance schema names
-            bid_px = df[[f'bids_px_{i}' for i in range(K)]].values
-            bid_sz = df[[f'bids_sz_{i}' for i in range(K)]].values
-            ask_px = df[[f'asks_px_{i}' for i in range(K)]].values
-            ask_sz = df[[f'asks_sz_{i}' for i in range(K)]].values
+        bid_px = df[[f'bid_{i}_price' for i in range(K)]].values
+        bid_sz = df[[f'bid_{i}_size' for i in range(K)]].values
+        ask_px = df[[f'ask_{i}_price' for i in range(K)]].values
+        ask_sz = df[[f'ask_{i}_size' for i in range(K)]].values
     except KeyError as e:
         print(f"Error extracting level-2 book columns in {file_path}. Columns available: {df.columns}")
         raise e

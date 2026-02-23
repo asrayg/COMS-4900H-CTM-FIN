@@ -3,7 +3,7 @@
 This repository contains the codebase and experiment tracking for a research project on evaluating Continuous Thought Machines (CTMs) against traditional episodic models (e.g., Transformers) and recurrent models (e.g., LSTMs) in the domain of high-frequency Bitcoin order book microstructure prediction.
 
 ## Repository Layout
-- `data/`: Fetches, pre-processes, and streams raw Binance order book data.
+- `data/`: Pre-processes and streams raw Tardis order book data.
 - `models/`: Implementations of the baseline models and CTM architectures.
 - `training/`: Training routines and evaluation metrics.
 - `configs/`: YAML configurations for training and parameter ablation studies.
@@ -24,18 +24,13 @@ source ctm_env/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Download the data utilizing the Binance API tool. You have two options:
-**Option A: Historical Data Downloads (Recommended for Large Datasets)**
+3. Rebuild the orderbook snapshots from a Tardis CSV file:
 ```bash
-python data/download_binance.py --mode historical --start 2024-03-01 --end 2024-03-05
+python data/tardis_builder.py path/to/tardis_file.csv
 ```
+This produces a parquet file in `data/raw/`.
 
-**Option B: Live WebSocket Orderbook Tracking**
-```bash
-python data/download_binance.py --mode live --duration 60
-```
-
-4. Run the data preprocessing pipeline to build the unified `HDF5` dataset:
+4. Build the unified HDF5 dataset from the parquet files:
 ```bash
 python data/preprocess.py
 ```
