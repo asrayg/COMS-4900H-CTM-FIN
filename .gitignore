@@ -1,7 +1,12 @@
+ctm_env/
 __pycache__/
-.venv/
-.env
-.DS_Store
+*.pyc
 .ipynb_checkpoints/
-*.csv
-data/
+data/raw/
+data/*.h5
+data/*.npy
+data/*.parquet
+wandb/
+runs/
+*.log
+.DS_Store

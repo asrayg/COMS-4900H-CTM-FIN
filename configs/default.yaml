@@ -1,0 +1,21 @@
+# Data
+data_path: "data/btc_book.h5"
+delta_ms: 50
+horizon_s: 5.0
+epsilon: 0.0001
+k_levels: 10
+
+# Model
+model_type: "ctm_inspired" # Options: logistic, lstm, transformer, ctm_inspired, ctm_full
+input_dim: 45
+hidden_dim: 64
+history_len: 64
+num_pairs: 128
+max_ticks: 5
+
+# Training
+batch_size: 1
+epochs: 20
+learning_rate: 0.0001
+weight_decay: 0.00001
+patience: 10

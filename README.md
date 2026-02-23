@@ -1,26 +1,61 @@
-# COMS-4900H-CTM-FIN: Continuous Thought Machines for Financial Microstructure
+# Continuous Thought Machines for Streaming Reasoning in Financial Microstructure
 
-This repository contains the implementation of Continuous Thought Machines (CTMs) for high-frequency Bitcoin order book prediction.
+This repository contains the codebase and experiment tracking for a research project on evaluating Continuous Thought Machines (CTMs) against traditional episodic models (e.g., Transformers) and recurrent models (e.g., LSTMs) in the domain of high-frequency Bitcoin order book microstructure prediction.
 
-## Repository Structure
-- `src/models/`: Implementation of Neuron-Level Models (NLMs), Synchronization layers, and CTM architectures.
-- `src/data/`: Data ingestion, clock-time resampling, and feature engineering for Binance L2 data.
-- `src/utils/`: Helper functions for metrics (AUROC, Flip Rate, etc.) and visualization.
-- `notebooks/`: Exploration and result visualization.
-- `scripts/`: Training and evaluation scripts.
+## Repository Layout
+- `data/`: Fetches, pre-processes, and streams raw Binance order book data.
+- `models/`: Implementations of the baseline models and CTM architectures.
+- `training/`: Training routines and evaluation metrics.
+- `configs/`: YAML configurations for training and parameter ablation studies.
+- `experiments/`: Scripts to launch batch runs and analyze results.
+- `shock_tests/`: Injects synthetic market shocks and assesses robustness.
+- `plots/`: Produces visual figures for the academic paper and poster.
 
-## Core Architecture
-The system uses the **Synchronization Representation** as its primary latent state, maintaining a continuous reasoning flow through "internal ticks" decoupled from input clock-time.
+## Getting Started
 
-## Baseline Comparisons
-- Transformer (Sliding Window)
-- GRU (Streaming Recurrence)
-- Simple Logistic Regression
-
-## Setup
+1. Create a Python virtual environment and activate it:
 ```bash
-# Recommended environment setup
-conda create -n ctm-fin python=3.10
-conda activate ctm-fin
-pip install torch pandas numpy matplotlib binance-connector
+python -m venv ctm_env
+source ctm_env/bin/activate
+```
+
+2. Install the required dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Download the data utilizing the Binance API tool. You have two options:
+**Option A: Historical Data Downloads (Recommended for Large Datasets)**
+```bash
+python data/download_binance.py --mode historical --start 2024-03-01 --end 2024-03-05
+```
+
+**Option B: Live WebSocket Orderbook Tracking**
+```bash
+python data/download_binance.py --mode live --duration 60
+```
+
+4. Run the data preprocessing pipeline to build the unified `HDF5` dataset:
+```bash
+python data/preprocess.py
+```
+
+5. Run a standard experiment utilizing the configuration at `configs/default.yaml`:
+```bash
+python experiments/run_experiment.py
+```
+
+6. To run a sweep over hyper-parameter ablations:
+```bash
+python experiments/sweep_ablations.py
+```
+
+7. To evaluate the robustness of models under simulated market shocks:
+```bash
+python shock_tests/run_shock_eval.py --shock_type spread
+```
+
+8. Generate the paper figures:
+```bash
+python plots/generate_figures.py
 ```
