@@ -1,0 +1,27 @@
+{
+  "logistic": {
+    "accuracy": 0.48101897462799237,
+    "auroc": 0.5,
+    "flip_rate": 0.0
+  },
+  "lstm": {
+    "accuracy": 0.5189810253720076,
+    "auroc": 0.5033054063607537,
+    "flip_rate": 0.0
+  },
+  "transformer": {
+    "accuracy": 0.5189810253720076,
+    "auroc": 0.5164575878871269,
+    "flip_rate": 0.0
+  },
+  "ctm_inspired": {
+    "accuracy": 0.511,
+    "auroc": 0.48232782628556775,
+    "flip_rate": 0.217
+  },
+  "ctm_full": {
+    "accuracy": 0.521,
+    "auroc": 0.5066337018500635,
+    "flip_rate": 0.44
+  }
+}

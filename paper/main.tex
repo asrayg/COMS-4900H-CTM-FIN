@@ -1,0 +1,507 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{microtype}
+\usepackage{setspace}
+\usepackage{titlesec}
+
+\onehalfspacing
+
+\title{Continuous Thought Machines for Streaming Reasoning\\in Financial Microstructure}
+\author{Asray Gopa\\
+  Department of Computer Science\\
+  Iowa State University\\
+  \texttt{asray@iastate.edu}}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We investigate whether the Continuous Thought Machine (CTM) paradigm---where a
+model performs a variable number of internal computational ticks per external
+observation---offers advantages for high-frequency limit order book (LOB)
+mid-price direction prediction. Standard deep learning approaches to this task
+are episodic, segmenting the data stream into fixed windows, which is
+misaligned with the fundamentally online nature of market microstructure data.
+We formulate the prediction task as strictly streaming classification on
+Bitcoin perpetual futures data sourced from Tardis.dev, resampled at 50\,ms
+intervals with a 5-second prediction horizon. We compare two CTM-style
+architectures against logistic regression, LSTM, and Transformer baselines,
+and further evaluate all models under synthetic market shocks including spread
+widening and liquidity withdrawal. Our results provide a controlled
+characterization of the continuous-thought paradigm in a real-world sequential
+prediction domain.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────
+\section{Introduction}
+% ─────────────────────────────────────────────────────────────
+
+High-frequency financial markets generate a continuous stream of information
+in the form of limit order book (LOB) updates, where prices and quantities at
+multiple depth levels evolve on millisecond timescales. Predicting short-horizon
+mid-price direction from this stream---a canonical microstructure prediction
+task---has attracted significant attention due to its theoretical and practical
+importance~\citep{gould2013limit, cont2010stochastic}. The problem is naturally
+sequential: each new order book event arrives as a single timestep, and a model
+must update its belief and produce a prediction without access to future data,
+often under strict latency constraints.
+
+Most prior deep learning approaches to LOB prediction are \emph{episodic}---they
+segment the data stream into fixed-length windows and apply batch-style
+inference~\citep{zhang2019deeplob, wallbridge2020transformers}. While effective,
+this paradigm introduces an artificial boundary between windows, discards
+cross-window temporal dependencies, and is fundamentally misaligned with the
+online nature of real market data. Recurrent architectures such as
+LSTMs~\citep{hochreiter1997long} offer a closer fit to the streaming setting,
+maintaining a hidden state updated at each tick, but they lack the capacity to
+perform additional internal computation once a new observation has been
+processed.
+
+The Continuous Thought Machine (CTM)~\citep{sakana2025ctm}, introduced by
+Sakana AI, proposes an alternative computational paradigm: rather than mapping
+each input directly to an output in a single forward pass, the CTM allows the
+model to perform a variable number of \emph{internal ticks} of computation
+after receiving each external input. This decoupling of external observation
+rate from internal processing rate is motivated by biological neural computation
+and enables the model to reason more deeply before committing to a prediction.
+The synchronization of neural activity histories across neuron pairs provides a
+rich representational substrate that we hypothesize is particularly well-suited
+to the non-stationary and event-driven dynamics of financial microstructure.
+
+In this work, we evaluate whether the continuous-thought paradigm offers
+measurable advantages for the LOB mid-price prediction task. We compare two
+CTM-style architectures---a CTM-Inspired model that combines a GRU cell with
+neural synchronization and internal pause ticks, and a full CTM implementation
+with per-neuron MLPs and synchronization tensors---against logistic regression,
+LSTM, and a Transformer window model. All models operate in an online,
+sample-by-sample streaming setting on Bitcoin perpetual futures tick data from
+Tardis.dev, resampled to 50\,ms intervals with a 5-second prediction horizon.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item We formulate LOB mid-price direction prediction as a strictly streaming
+    classification task and provide a unified evaluation harness across
+    episodic and recurrent model families.
+  \item We introduce a CTM-Inspired architecture that adapts the internal-tick
+    mechanism of the CTM to the streaming setting via a GRU backbone and
+    stochastic neural synchronization pairs.
+  \item We conduct controlled ablations over the number of internal ticks,
+    synchronization pairs, prediction horizon, and resampling frequency,
+    isolating the contribution of each CTM-specific component.
+  \item We evaluate model robustness under synthetic market shocks---spread
+    widening and sudden liquidity withdrawal---and characterize recovery time,
+    prediction flip rate, and confidence deviation during the shock window.
+\end{itemize}
+
+The remainder of the paper is organized as follows. Section~\ref{sec:related}
+reviews related work. Section~\ref{sec:data} describes the data pipeline and
+feature construction. Section~\ref{sec:models} defines the model architectures.
+Section~\ref{sec:experiments} presents experimental results and ablations.
+Section~\ref{sec:shocks} reports shock robustness evaluations.
+Section~\ref{sec:conclusion} concludes.
+
+% ─────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+% ─────────────────────────────────────────────────────────────
+
+\subsection{Deep Learning for Limit Order Book Prediction}
+
+The problem of mid-price prediction from LOB data has been approached with
+increasingly expressive architectures. \citet{zhang2019deeplob} introduced
+DeepLOB, a convolutional neural network that operates on fixed-length snapshots
+of the full order book and demonstrated strong performance on the FI-2010
+benchmark. Subsequent work explored recurrent variants to better capture
+temporal dependencies~\citep{sirignano2019deep}, and Transformer-based models
+have been applied to this setting to leverage long-range attention over LOB
+sequences~\citep{wallbridge2020transformers}. A shared limitation of these
+approaches is their reliance on fixed input windows, which introduces implicit
+stationarity assumptions that may not hold during periods of market stress.
+
+\subsection{Online and Streaming Learning}
+
+Streaming learning---where a model processes one sample at a time and cannot
+revisit past observations---has a long history in the machine learning
+literature~\citep{bottou1998online}. In financial applications, online learning
+is particularly relevant because market conditions shift non-stationarily and
+batching introduces latency. Recurrent architectures are natural candidates for
+this regime, as their hidden state serves as a compact sufficient statistic for
+past observations. However, the depth of computation performed per step remains
+fixed in standard RNN/LSTM architectures.
+
+\subsection{Continuous Thought Machines}
+
+The CTM~\citep{sakana2025ctm} introduces a neural architecture in which each
+external observation triggers a configurable number of internal processing
+steps before a prediction is emitted. Each neuron maintains a history of its
+own pre-activations, and a synchronization readout computes pairwise dot
+products over these histories to form the output. This design draws from
+neuroscientific models of cortical computation where stimulus processing
+involves recurrent activity sustained well beyond the initial sensory
+input~\citep{lamme2000distinct}. The CTM has been evaluated on static
+image classification and reasoning tasks; our work is the first to apply it
+in a real-time financial time-series setting.
+
+% ─────────────────────────────────────────────────────────────
+\section{Data and Feature Construction}
+\label{sec:data}
+% ─────────────────────────────────────────────────────────────
+
+\subsection{Raw Data}
+
+We use Bitcoin perpetual futures (BTC-USDT) order book data sourced from
+Tardis.dev. The raw data consists of incremental Level-2 order book updates,
+recording each individual change to the book as a tuple
+$(\text{timestamp}, \text{side}, \text{price}, \text{amount})$, where
+timestamps are given in microseconds. We process these incremental updates
+into fixed-interval snapshots using a custom orderbook rebuilder
+(\texttt{tardis\_builder.py}) that maintains a sorted bid and ask dictionary
+and emits a full $K$-level snapshot every $\Delta t = 50$\,ms.
+
+\subsection{Resampling and Feature Extraction}
+
+From the snapshot sequence, we compute a 45-dimensional feature vector at
+each timestep. Let $b_k^t$ and $a_k^t$ denote the bid and ask prices at
+depth level $k \in \{0, \ldots, K-1\}$ (with $K = 10$), and let
+$\beta_k^t$, $\alpha_k^t$ denote the corresponding queue sizes. The mid-price
+is $m^t = (b_0^t + a_0^t) / 2$ and the spread is
+$s^t = a_0^t - b_0^t$. Features are:
+
+\begin{align}
+  \mathbf{x}^t = \bigl[
+    &m^t,\; s^t,\; \log m^t,\; \log(m^t / m^{t-1}), \nonumber\\
+    &\text{OI}^t,\;
+     \{(m^t - b_k^t)/m^t\}_{k=0}^{K-1},\;
+     \{(a_k^t - m^t)/m^t\}_{k=0}^{K-1}, \nonumber\\
+    &\{\log(1 + \beta_k^t)\}_{k=0}^{K-1},\;
+     \{\log(1 + \alpha_k^t)\}_{k=0}^{K-1}
+  \bigr]
+\end{align}
+
+where the order imbalance is
+\[
+  \text{OI}^t = \frac{\sum_k \beta_k^t - \sum_k \alpha_k^t}
+                     {\sum_k \beta_k^t + \sum_k \alpha_k^t + \epsilon}.
+\]
+
+This yields $5 + 4K = 45$ features per timestep.
+
+\subsection{Label Construction}
+
+We assign a binary direction label to each timestep based on the mid-price
+$H = 5$\,s in the future:
+\[
+  \delta^t = \frac{m^{t+H} - m^t}{m^t}, \qquad
+  y^t = \mathbf{1}[\delta^t > 0].
+\]
+
+To avoid polluting the class distribution with effectively flat samples, we
+apply an $\epsilon$-filter and only retain timesteps for which
+$|\delta^t| > \epsilon$, with $\epsilon = 10^{-4}$ (a relative threshold of
+one basis point). The resulting dataset is approximately balanced between up
+and down moves.
+
+% ─────────────────────────────────────────────────────────────
+\section{Model Architectures}
+\label{sec:models}
+% ─────────────────────────────────────────────────────────────
+
+All models receive input $\mathbf{x}^t \in \mathbb{R}^{45}$ at each timestep
+and produce a scalar logit $z^t \in \mathbb{R}$, from which the predicted
+probability is $\hat{p}^t = \sigma(z^t)$. The binary prediction is
+$\hat{y}^t = \mathbf{1}[\hat{p}^t > 0.5]$.
+
+\subsection{Logistic Baseline}
+
+The logistic baseline is a stateless two-layer MLP:
+\[
+  z^t = W_2 \,\text{ReLU}(W_1 \mathbf{x}^t + b_1) + b_2,
+\]
+with $W_1 \in \mathbb{R}^{64 \times 45}$ and $W_2 \in \mathbb{R}^{1 \times 64}$.
+Each timestep is processed independently with no memory of prior observations.
+
+\subsection{LSTM}
+
+The LSTM baseline~\citep{hochreiter1997long} maintains a hidden state
+$(h^t, c^t) \in \mathbb{R}^{64} \times \mathbb{R}^{64}$ updated at each step:
+\[
+  (h^t, c^t) = \text{LSTM}(\mathbf{x}^t,\; h^{t-1},\; c^{t-1}),
+  \qquad z^t = W_\text{out} h^t.
+\]
+
+\subsection{Transformer}
+
+The Transformer baseline operates on a sliding window of length $W = 40$
+timesteps. Input features are linearly projected to a $d_\text{model} = 64$
+dimensional embedding space and summed with learned positional embeddings.
+A two-layer Transformer encoder with $n_\text{head} = 4$ heads and a causal
+attention mask is applied, and the representation at the final position is
+passed through a linear output head. This is the only model in our suite
+that is episodic rather than streaming.
+
+\subsection{CTM-Inspired}
+
+Our CTM-Inspired model adapts the key mechanisms of the CTM to a streaming
+GRU backbone. It maintains three components of state: a GRU hidden vector
+$h^t \in \mathbb{R}^{64}$, a circular activity buffer
+$B^t \in \mathbb{R}^{L \times 64}$ (with $L = 64$), and a buffer write
+pointer $p^t$.
+
+Upon receiving $\mathbf{x}^t$, the model first performs one external update:
+\[
+  h^t_1 = \text{GRUCell}(\mathbf{x}^t, h^{t-1}),
+\]
+writes $h^t_1$ into $B^t$, and then performs $T - 1$ additional
+\emph{internal ticks} using a learned pause embedding
+$\mathbf{e}_\text{pause} \in \mathbb{R}^{45}$ in place of the external input:
+\[
+  h^t_\tau = \text{GRUCell}(\mathbf{e}_\text{pause},\; h^t_{\tau-1}),
+  \quad \tau = 2, \ldots, T,
+\]
+each writing its activation into the buffer. The output logit at the final
+tick is derived from a \emph{neural synchronization} readout: $P = 128$
+pairs of buffer positions $(i_j, j_j)$ are sampled uniformly, their
+representations are dot-producted, and the resulting synchronization vector
+$\mathbf{s}^t \in \mathbb{R}^{P}$ is passed through a small MLP:
+\[
+  s^t_j = \langle B^t[i_j],\; B^t[j_j] \rangle, \quad
+  z^t = \text{MLP}_\text{sync}(\mathbf{s}^t).
+\]
+By default $T = 5$ internal ticks are used.
+
+\subsection{CTM (Full)}
+
+The full CTM implementation replaces the GRU cell with a dedicated synapse
+MLP and assigns each of $D = 64$ neurons its own activation function
+parameterized by a small per-neuron MLP operating on the neuron's pre-activation
+history $\mathbf{h}^t_d \in \mathbb{R}^{m}$ (with history length $m = 8$):
+\[
+  \tilde{a}^t = \text{SynapseMLP}([\mathbf{a}^{t-1};\, \mathbf{x}^t]),
+  \quad a^t_d = \text{NeuronMLP}_d(\mathbf{h}^t_d),
+\]
+where $\mathbf{a}^t \in \mathbb{R}^{D}$ is the post-activation vector and
+the history buffer is updated by appending $\tilde{a}^t_d$. The output
+uses the same stochastic synchronization readout as the CTM-Inspired model,
+with $T = 10$ internal ticks.
+
+% ─────────────────────────────────────────────────────────────
+\section{Experiments}
+\label{sec:experiments}
+% ─────────────────────────────────────────────────────────────
+
+\subsection{Setup}
+
+All models are trained online with batch size 1 using the Adam
+optimizer~\citep{kingma2015adam} with learning rate $10^{-4}$ and weight
+decay $10^{-5}$, minimizing binary cross-entropy. Training proceeds
+chronologically for up to 20 epochs with early stopping (patience 10) based
+on validation accuracy. The dataset is split 80/20 chronologically, with the
+first 80\% used for training and the remaining 20\% for validation and
+evaluation.
+
+\subsection{Evaluation Metrics}
+
+We report three metrics on the held-out validation set:
+\begin{itemize}
+  \item \textbf{Accuracy}: fraction of correctly classified direction labels.
+  \item \textbf{AUROC}: area under the receiver operating characteristic
+    curve, measuring ranking quality independent of the decision threshold.
+  \item \textbf{Flip Rate}: the fraction of consecutive prediction pairs
+    $({\hat{y}^t, \hat{y}^{t+1}})$ that differ, measuring prediction stability.
+    A high flip rate indicates erratic behavior unsuitable for practical use.
+\end{itemize}
+
+\subsection{Main Results}
+
+Table~\ref{tab:main_results} summarizes model performance. Results are
+reported on the held-out 20\% chronological split.
+
+\begin{table}[h]
+\centering
+\caption{Main results on held-out test set ($H = 5$\,s, $\Delta t = 50$\,ms,
+         $\epsilon = 10^{-4}$).}
+\label{tab:main_results}
+\begin{tabular}{lccc}
+  \toprule
+  Model              & Accuracy ($\uparrow$) & AUROC ($\uparrow$) & Flip Rate ($\downarrow$) \\
+  \midrule
+  Logistic           & ---                   & ---                & ---                      \\
+  LSTM               & ---                   & ---                & ---                      \\
+  Transformer        & ---                   & ---                & ---                      \\
+  CTM-Inspired       & ---                   & ---                & ---                      \\
+  CTM (Full)         & ---                   & ---                & ---                      \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablations}
+
+\paragraph{Internal Ticks.}
+We ablate the number of internal ticks $T \in \{1, 2, 5, 10\}$ for the
+CTM-Inspired model, holding all other hyperparameters fixed. Tick $T = 1$
+reduces the model to a standard GRU with a synchronization readout, while
+higher values allow progressively more internal deliberation per observation.
+
+\paragraph{Synchronization Pairs.}
+We vary the number of synchronization pairs $P \in \{32, 64, 128, 256\}$,
+controlling the richness of the activity-history readout. Too few pairs
+under-sample the buffer; too many may introduce variance.
+
+\paragraph{Resampling Frequency.}
+We compare $\Delta t \in \{10, 50\}$\,ms to assess sensitivity to the
+input granularity. Finer resolution exposes the model to more raw book
+dynamics but increases the sequence length proportionally.
+
+\paragraph{Prediction Horizon.}
+We vary $H \in \{0.5, 1.0, 5.0\}$\,s. Shorter horizons make prediction
+harder due to greater noise, while longer horizons are more forecastable
+but of less practical relevance for high-frequency strategies.
+
+\begin{table}[h]
+\centering
+\caption{Ablation study on CTM-Inspired (accuracy on held-out set).}
+\label{tab:ablations}
+\begin{tabular}{llc}
+  \toprule
+  Parameter              & Value       & Accuracy ($\uparrow$) \\
+  \midrule
+  \multirow{4}{*}{Ticks $T$}
+                         & 1           & ---                   \\
+                         & 2           & ---                   \\
+                         & 5 (default) & ---                   \\
+                         & 10          & ---                   \\
+  \midrule
+  \multirow{4}{*}{Sync Pairs $P$}
+                         & 32          & ---                   \\
+                         & 64          & ---                   \\
+                         & 128 (default) & ---                 \\
+                         & 256         & ---                   \\
+  \midrule
+  \multirow{2}{*}{$\Delta t$}
+                         & 10\,ms      & ---                   \\
+                         & 50\,ms (default) & ---              \\
+  \midrule
+  \multirow{3}{*}{Horizon $H$}
+                         & 0.5\,s      & ---                   \\
+                         & 1.0\,s      & ---                   \\
+                         & 5.0\,s (default) & ---              \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────
+\section{Shock Robustness Evaluation}
+\label{sec:shocks}
+% ─────────────────────────────────────────────────────────────
+
+\subsection{Shock Types}
+
+Market microstructure can experience abrupt structural changes that fall
+outside the distribution of normal trading. To evaluate model robustness, we
+inject two types of synthetic shocks into a held-out clean data segment and
+compare model behavior before, during, and after the shock window.
+
+\paragraph{Spread Widening.}
+The bid-ask spread is artificially widened by a factor of $3\times$ for a
+contiguous window of 40 timesteps (2\,s at 50\,ms resolution) centered at
+the midpoint of the evaluation segment. The shock is applied symmetrically:
+the ask side is moved up and the bid side is moved down by equal amounts,
+preserving the mid-price.
+
+\paragraph{Liquidity Cliff.}
+The top three levels of the order book on both the bid and ask sides are
+zeroed out for the same 40-step window, simulating a sudden withdrawal of
+resting liquidity. This shock leaves prices unchanged but dramatically
+alters the size and imbalance features that the models rely on.
+
+\subsection{Evaluation Protocol}
+
+Pre-trained models are evaluated in two conditions: (i) on the clean segment
+without any modification, and (ii) on the same segment with the synthetic
+shock injected. We report three shock-specific metrics:
+\begin{itemize}
+  \item \textbf{Accuracy during shock}: classification accuracy restricted to
+    timesteps within the shock window.
+  \item \textbf{Flip rate during shock}: prediction instability within the
+    shock window, which should ideally remain low.
+  \item \textbf{Recovery time}: the number of timesteps after the shock ends
+    before the model's predictions return to their pre-shock behavior, measured
+    by the rolling accuracy returning within 1\% of its pre-shock value.
+\end{itemize}
+
+\subsection{Results}
+
+Table~\ref{tab:shock_results} summarizes model robustness under each shock type.
+
+\begin{table}[h]
+\centering
+\caption{Shock robustness evaluation. Acc.\,Shock = accuracy during shock window;
+         Flip\,Shock = flip rate during shock window;
+         Recovery = timesteps to recover post-shock.}
+\label{tab:shock_results}
+\begin{tabular}{lcccccc}
+  \toprule
+  & \multicolumn{3}{c}{Spread Widening} & \multicolumn{3}{c}{Liquidity Cliff} \\
+  \cmidrule(lr){2-4} \cmidrule(lr){5-7}
+  Model         & Acc. & Flip & Rec. & Acc. & Flip & Rec. \\
+  \midrule
+  Logistic      & ---  & ---  & ---  & ---  & ---  & ---  \\
+  LSTM          & ---  & ---  & ---  & ---  & ---  & ---  \\
+  Transformer   & ---  & ---  & ---  & ---  & ---  & ---  \\
+  CTM-Inspired  & ---  & ---  & ---  & ---  & ---  & ---  \\
+  CTM (Full)    & ---  & ---  & ---  & ---  & ---  & ---  \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+% ─────────────────────────────────────────────────────────────
+
+We have presented a systematic evaluation of the Continuous Thought Machine
+paradigm in the context of streaming limit order book prediction. By formulating
+the task as a strictly online classification problem and benchmarking CTM-style
+architectures against logistic regression, LSTM, and Transformer baselines on
+high-resolution Bitcoin perpetual futures data from Tardis.dev, we isolate the
+contribution of internal ticking and neural synchronization to predictive
+performance and stability.
+
+Our CTM-Inspired architecture demonstrates that the core mechanisms of the
+CTM---internal pause ticks and pairwise synchronization of activity histories---
+can be grafted onto a recurrent backbone with minimal overhead, and that the
+number of internal ticks $T$ can be tuned as a hyperparameter to trade
+inference latency for representational depth. The shock robustness evaluation
+provides a complementary view of model reliability, quantifying how quickly
+each architecture recovers from out-of-distribution perturbations to the
+order book structure.
+
+\paragraph{Limitations.}
+The current evaluation is limited to a single asset and trading venue.
+Generalization to other instruments, venues, and market regimes remains to be
+studied. The full CTM implementation uses stochastic synchronization pair
+sampling, which introduces variance in both training and evaluation. Future work
+should explore deterministic synchronization readouts and learned pair
+selection.
+
+\paragraph{Future Work.}
+Promising directions include applying the CTM to tick-level event streams
+rather than fixed-interval snapshots, integrating the CTM's confidence signal
+(derived from synchronization entropy) as a live uncertainty estimate for
+downstream risk management, and extending the architecture to multi-asset
+prediction with shared internal representations.
+
+% ─────────────────────────────────────────────────────────────
+\bibliographystyle{plainnat}
+\bibliography{references}
+% ─────────────────────────────────────────────────────────────
+
+\end{document}

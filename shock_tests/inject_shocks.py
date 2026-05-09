@@ -13,12 +13,13 @@ def apply_spread_shock(bid_px, ask_px, bid_sz, ask_sz, factor=3.0, duration_step
     end = min(len(bid_px), center + duration_steps // 2)
     
     for i in range(start, end):
+        mid = (shocked_ask[i, 0] + shocked_bid[i, 0]) / 2.0
         spread = shocked_ask[i, 0] - shocked_bid[i, 0]
-        new_spread = spread * factor
-        
-        # Symmetrically widen the spread
-        shocked_ask[i, 0] = shocked_bid[i, 0] + new_spread / 2
-        shocked_bid[i, 0] = shocked_ask[i, 0] - new_spread / 2
+        half_new = (spread * factor) / 2.0
+
+        # Symmetrically widen around mid-price
+        shocked_bid[i, 0] = mid - half_new
+        shocked_ask[i, 0] = mid + half_new
         
     return shocked_bid, shocked_ask, bid_sz, ask_sz
 

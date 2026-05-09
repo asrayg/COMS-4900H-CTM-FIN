@@ -1,0 +1,39 @@
+{
+  "spread": {
+    "logistic": {
+      "pre_shock_accuracy": 0.7421307506053268,
+      "clean_shock_accuracy": 0.0,
+      "shock_accuracy": 0.0,
+      "shock_flip_rate": 0.0,
+      "recovery_steps": 527
+    },
+    "lstm": {
+      "pre_shock_accuracy": 0.7421307506053268,
+      "clean_shock_accuracy": 0.0,
+      "shock_accuracy": 0.0,
+      "shock_flip_rate": 0.0,
+      "recovery_steps": 527
+    },
+    "transformer": {
+      "pre_shock_accuracy": 0.7421307506053268,
+      "clean_shock_accuracy": 0.0,
+      "shock_accuracy": 0.0,
+      "shock_flip_rate": 0.0,
+      "recovery_steps": 527
+    },
+    "ctm_inspired": {
+      "pre_shock_accuracy": 0.6174334140435835,
+      "clean_shock_accuracy": 0.2,
+      "shock_accuracy": 0.225,
+      "shock_flip_rate": 0.225,
+      "recovery_steps": 572
+    },
+    "ctm_full": {
+      "pre_shock_accuracy": 0.572639225181598,
+      "clean_shock_accuracy": 0.3,
+      "shock_accuracy": 0.375,
+      "shock_flip_rate": 0.35,
+      "recovery_steps": 572
+    }
+  }
+}
